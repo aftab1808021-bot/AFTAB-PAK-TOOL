@@ -13,6 +13,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+
       - name: Checkout project
         uses: actions/checkout@v4
 
@@ -53,8 +54,6 @@ jobs:
 
       - name: Prepare Buildozer config
         run: |
-          sed -i '/^[[:space:]]*p4a\.source_dir[[:space:]]*=/d' buildozer.spec
-
           python - <<'PY'
           from pathlib import Path
           import re
@@ -62,22 +61,53 @@ jobs:
           p = Path("buildozer.spec")
           s = p.read_text()
 
-          if "android.accept_sdk_license" not in s:
+          # Remove any old local p4a path
+          s = re.sub(
+              r"(?m)^[ \t]*p4a\.source_dir[ \t]*=.*\n?",
+              "",
+              s
+          )
+
+          # Add / fix p4a branch inside [app]
+          if re.search(r"(?m)^[ \t]*#?[ \t]*p4a\.branch[ \t]*=", s):
+              s = re.sub(
+                  r"(?m)^[ \t]*#?[ \t]*p4a\.branch[ \t]*=.*$",
+                  "p4a.branch = develop",
+                  s
+              )
+          else:
+              s = s.replace(
+                  "[app]\n",
+                  "[app]\np4a.branch = develop\n",
+                  1
+              )
+
+          # Add / fix Android SDK license acceptance
+          if re.search(
+              r"(?m)^[ \t]*#?[ \t]*android\.accept_sdk_license[ \t]*=",
+              s
+          ):
+              s = re.sub(
+                  r"(?m)^[ \t]*#?[ \t]*android\.accept_sdk_license[ \t]*=.*$",
+                  "android.accept_sdk_license = True",
+                  s
+              )
+          else:
               s = s.replace(
                   "[app]\n",
                   "[app]\nandroid.accept_sdk_license = True\n",
                   1
               )
-          else:
-              s = re.sub(
-                  r"^[ \t]*#?[ \t]*android\.accept_sdk_license[ \t]*=.*$",
-                  "android.accept_sdk_license = True",
-                  s,
-                  flags=re.MULTILINE,
-              )
 
           p.write_text(s)
           PY
+
+          echo "===== buildozer.spec ====="
+          cat buildozer.spec
+
+      - name: Download Android SDK, NDK and p4a
+        run: |
+          buildozer android p4a -- --help
 
       - name: Build APK
         run: |
