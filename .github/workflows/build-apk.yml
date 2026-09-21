@@ -1,0 +1,90 @@
+name: Build AFTAB PAK TOOL APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+
+env:
+  PYTHONFORANDROID_PREREQUISITES_INSTALL_INTERACTIVE: "0"
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            git \
+            zip \
+            unzip \
+            autoconf \
+            libtool \
+            pkg-config \
+            zlib1g-dev \
+            libncurses5-dev \
+            libncursesw5-dev \
+            cmake \
+            libffi-dev \
+            libssl-dev \
+            automake
+
+      - name: Install Buildozer
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install buildozer cython==0.29.37
+
+      - name: Prepare Buildozer config
+        run: |
+          sed -i '/^[[:space:]]*p4a\.source_dir[[:space:]]*=/d' buildozer.spec
+
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          p = Path("buildozer.spec")
+          s = p.read_text()
+
+          if "android.accept_sdk_license" not in s:
+              s = s.replace(
+                  "[app]\n",
+                  "[app]\nandroid.accept_sdk_license = True\n",
+                  1
+              )
+          else:
+              s = re.sub(
+                  r"^[ \t]*#?[ \t]*android\.accept_sdk_license[ \t]*=.*$",
+                  "android.accept_sdk_license = True",
+                  s,
+                  flags=re.MULTILINE,
+              )
+
+          p.write_text(s)
+          PY
+
+      - name: Build APK
+        run: |
+          buildozer android debug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: AFTAB-PAK-TOOL-APK
+          path: bin/*.apk
+          if-no-files-found: error
