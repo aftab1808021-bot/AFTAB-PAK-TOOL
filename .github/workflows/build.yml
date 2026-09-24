@@ -8,14 +8,25 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
+
+      # -----------------------------
+      # 1. Checkout project
+      # -----------------------------
       - name: Checkout
         uses: actions/checkout@v4
 
+
+      # -----------------------------
+      # 2. Install system packages
+      # -----------------------------
       - name: Install system packages
         run: |
           sudo apt-get update
+
           sudo apt-get install -y \
+            python3 \
             python3-pip \
+            python3-venv \
             git \
             zip \
             unzip \
@@ -23,41 +34,96 @@ jobs:
             autoconf \
             automake \
             libtool \
-            pkg-config
+            pkg-config \
+            cmake \
+            build-essential
 
+
+      # -----------------------------
+      # 3. Java setup
+      # -----------------------------
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+
+      # -----------------------------
+      # 4. Install Buildozer
+      # -----------------------------
       - name: Install Buildozer
         run: |
-          python3 -m pip install --upgrade pip setuptools wheel
-          python3 -m pip install buildozer cython==0.29.37
+          python3 -m pip install --upgrade pip
+          python3 -m pip install --upgrade setuptools wheel
 
-      - name: Prepare Android SDK
+          python3 -m pip install \
+            buildozer \
+            cython==0.29.37
+
+
+      # -----------------------------
+      # 5. Configure Buildozer
+      # -----------------------------
+      - name: Configure Buildozer
         run: |
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
-
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
-
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
-            "platform-tools" \
-            "platforms;android-35" \
-            "build-tools;35.0.0" \
-            "build-tools;37.0.0"
-
-      - name: Accept Buildozer SDK licenses
-        run: |
-          mkdir -p "$HOME/.buildozer/android/platform/android-sdk/licenses"
-
-          if [ -d "$ANDROID_HOME/licenses" ]; then
-            cp -r "$ANDROID_HOME/licenses/." \
-              "$HOME/.buildozer/android/platform/android-sdk/licenses/" || true
+          if [ ! -f buildozer.spec ]; then
+            echo "ERROR: buildozer.spec not found"
+            exit 1
           fi
 
+          # Enable automatic Android SDK license acceptance
+          if grep -q "^android.accept_sdk_license" buildozer.spec; then
+            sed -i 's/^android.accept_sdk_license.*/android.accept_sdk_license = True/' buildozer.spec
+          elif grep -q "^# *android.accept_sdk_license" buildozer.spec; then
+            sed -i 's/^# *android.accept_sdk_license.*/android.accept_sdk_license = True/' buildozer.spec
+          else
+            echo "android.accept_sdk_license = True" >> buildozer.spec
+          fi
+
+          echo "===== Buildozer license setting ====="
+          grep "android.accept_sdk_license" buildozer.spec || true
+
+
+      # -----------------------------
+      # 6. Clean old Buildozer cache
+      # -----------------------------
+      - name: Prepare Buildozer
+        run: |
+          rm -rf .buildozer
+
+          mkdir -p .buildozer
+
+          echo "Buildozer directory prepared."
+
+
+      # -----------------------------
+      # 7. Build APK
+      # -----------------------------
       - name: Build APK
+        env:
+          BUILDOZER_WARN_ON_ROOT: "1"
         run: |
           yes | buildozer -v android debug
 
+
+      # -----------------------------
+      # 8. Show generated files
+      # -----------------------------
+      - name: Show APK
+        if: always()
+        run: |
+          echo "===== APK FILES ====="
+          find bin -type f -name "*.apk" -print 2>/dev/null || true
+
+
+      # -----------------------------
+      # 9. Upload APK
+      # -----------------------------
       - name: Upload APK
+        if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: aftab-modz-debug-apk
+          name: AFTAB-MODZ-APK
           path: bin/*.apk
+          if-no-files-found: error
